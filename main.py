@@ -10,8 +10,7 @@ N_CLASSES = 2
 
 # Reads data from files
 def load_data(file_name):
-    # Første element i hver linje angir klassetilhørigheten (verdien 1 eller 2) og de øvrige elementene i linjen
-    # angir egenskapsverdiene knyttet til det samme objektet.
+    # Første element i hver linje angir klassetilhørighet (1 eller 2) og de øvrige angir egenskapsverdier
     file = open(file_name, 'r').readlines()
     global WIDTH, LENGTH
     LENGTH = len(file) // N_CLASSES
@@ -25,7 +24,6 @@ def load_data(file_name):
         for col in range(WIDTH):
             train[row][col] = float(file[row * 2].split()[col])
             test[row][col] = float(file[row * 2 + 1].split()[col])
-
     return train, test
 
 
@@ -38,7 +36,7 @@ def find_error_rate(test_data):
 
 
 def results_to_file(task, header, results):
-    res = open(''.join(['results_', str(task), '_', file_name.split('.')[0], '.txt']), 'w')
+    res = open(''.join(['./results/results_', str(task), '_', file_name.split('.')[0], '.txt']), 'w')
     res.writelines(header)
     res.writelines('\n'.join('\t'.join(str(column) for column in line) for line in results))
 
@@ -64,6 +62,7 @@ def NN(train, test):
     error_rates.sort(key=lambda x: (x[0], x[2]))
     header = '#features\tSelected features\tFail rate\n'
     results_to_file(1, header, error_rates)
+    return test
 
 
 def get_combinations(file_name, data_set):
@@ -77,7 +76,7 @@ def get_combinations(file_name, data_set):
     return combinations
 
 
-# Discriminant function g(x)
+# Discriminant function g(x) for Minimum Error Rate
 def discriminant_function(x, W, w, w_0, i):
     return np.matmul(np.matmul(x.T, W[i]), x) + np.matmul(w[i].T, x) + w_0[i]
 
@@ -127,6 +126,7 @@ def min_error_rate(training_data, test_data, data_set):
     error_rates.sort(key=lambda x: (x[0], x[2]))
     header = '#features\tSelected features\tFail rate\n'
     results_to_file('2a', header, error_rates)
+    return temp_test_data
 
 
 # minimum squared error
@@ -135,6 +135,7 @@ def MSE(training_data, test_data, data_set):
     # We shall use the best feature combinations from exersise 1
     combinations = get_combinations('best_feature_combinations.txt', data_set)
     error_rates = []
+    test_results = []
 
     for combo in combinations:
         temp_training_data = training_data
@@ -146,40 +147,54 @@ def MSE(training_data, test_data, data_set):
         temp_training_data = np.delete(temp_training_data, delete_columns, axis=1)
         temp_test_data = np.delete(temp_test_data, delete_columns, axis=1)
 
-        # Expand training matrix with one column
-        train_with_bias = np.ones((len(temp_training_data), len(temp_training_data[0]) + 1))
-        train_with_bias[:, 0] = temp_training_data[:, 0]
-        train_with_bias[:, 2:] = temp_training_data[:, 1:]
-
         # Create vector b where b[i] is 1 for class 1 and b[i] is -1 for all other classes, for all i
-        b = train_with_bias[:, [0, 1]]
-        b[1][b[1] == 1] = 1
-        b[1][b[1] != 1] = -1
+        b_temp = temp_training_data[:, [0, 1]]
+        for row in b_temp:
+            if row[0] == 1:
+                row[1] = 1
+            else:
+                row[1] = -1
+        b = b_temp[:, 1]
 
-        # Create weigth vector
+        # Replace column in training data with classes with a bias column where every value is one
+        train_with_bias = temp_training_data
+        train_with_bias[:, 0] = 1
+
+        # Repeat for test data, but add this bias column as column nr two from the left
+        test_with_bias = np.ones((len(temp_test_data), len(temp_test_data[0]) + 1))
+        test_with_bias[:, 0] = temp_test_data[:, 0]
+        test_with_bias[:, 2:] = temp_test_data[:, 1:]
+
+        # Create weight vector
+        a = np.matmul(np.matmul(np.linalg.inv(np.matmul(train_with_bias.T, train_with_bias)), train_with_bias.T), b)
 
         # Run discriminant function for every feature vector in the test data
-        for x in temp_test_data:
-            g1 = discriminant_function(x[1:-1], W, w, w_0, 0)
-            g2 = discriminant_function(x[1:-1], W, w, w_0, 1)
-            g = g1 - g2
+        for row in test_with_bias:
+            # print(combo)
+            # print('a:', a)
+            # print(row[1:-1])
+            g = np.matmul(a.T, row[1:-1])
             if g > 0:
-                x[-1] = 1  # assign estimated class
+                row[-1] = 1  # assign estimated class
             else:
-                x[-1] = 2
+                row[-1] = 2
 
-        error = find_error_rate(temp_test_data)
+        error = find_error_rate(test_with_bias)
         error_rates.append((sum(combo), combo, "{0:.3f}".format(round(error / LENGTH, 3))))
+        test_results.append(test_with_bias)
+
+    plt.scatter(test_with_bias[:, 2], test_with_bias[:, 3], c=test_with_bias[:, -1])
 
     error_rates.sort(key=lambda x: (x[0], x[2]))
     header = '#features\tSelected features\tFail rate\n'
-    results_to_file('2a', header, error_rates)
+    results_to_file('2b', header, error_rates)
+    return test_with_bias
 
 # ****************************
 
 if __name__ == '__main__':
-    file_name = 'ds-1.txt'  # syntetisk, 300 objekter med 4 egenskaper
-    # file_name = 'ds-2.txt'    # syntetisk, 300 objekter med 3 egenskaper
+    # file_name = 'ds-1.txt'  # syntetisk, 300 objekter med 4 egenskaper
+    file_name = 'ds-2.txt'    # syntetisk, 300 objekter med 3 egenskaper
     # file_name = 'ds-3.txt'  # generert ved uttrekking, 400 objekter med 4 egenskaper
     data_set = int(file_name.split('.')[0][-1])     # chosen data_set
 
@@ -188,16 +203,16 @@ if __name__ == '__main__':
     # Plot training set with correct classes
     # plt.scatter(train[:, 1], train[:, 2], c=train[:, 0])
 
-    # NN(train, test)
-    # min_error_rate(train, test, data_set)
-    MSE(train, test, data_set)
+    # test = NN(train, test)
+    # test = min_error_rate(train, test, data_set)
+    test = MSE(train, test, data_set)
 
     # Plot test set with estimated classes
-    plt.scatter(test[:, 1], test[:, 2], c=test[:, -1])
+    # plt.scatter(test[:, 1], test[:, 2], c=test[:, -1])
 
     # Plot test set with estimated classes in 3D
     # fig = plt.figure()
     # ax = Axes3D(fig)
     # ax.scatter(train[:, 1], train[:, 2], test[:, 3], c=test[:, -1])
 
-    # plt.show()
+    plt.show()
